@@ -11,8 +11,6 @@ RETRY_ARGS=(--tpslimit 4 --retries 3 --low-level-retries 10 --timeout 5m)
 CONF_ARGS=()
 [ -n "${RCLONE_CONFIG:-}" ] && CONF_ARGS=(--config "$RCLONE_CONFIG")
 
-folder_index=1
-folder_used=0
 safe=$(echo "$SOURCE" | tr -dc 'A-Za-z0-9')
 skipped_log="/data/oversized_files_${safe}.txt"
 > "$skipped_log"
@@ -37,6 +35,37 @@ rclone "${CONF_ARGS[@]}" lsf "$SOURCE" -R --files-only \
 
 total=$(wc -l < "$tmp_list")
 echo "PROG:START;$total"
+
+# Resume support: check real folder sizes via rclone instead of assuming
+# folder_index=1 / folder_used=0. A folder counts as full only once its
+# actual size is >= the cap; we resume into the first folder that isn't
+# full yet, or start a new one after the highest existing folder.
+folder_index=1
+folder_used=0
+n=1
+while true; do
+  candidate="${SOURCE}${LIMIT_GB}gb${n}"
+  size_json=$(rclone "${CONF_ARGS[@]}" size "$candidate" --json 2>/dev/null) || break
+  exists_count=$(printf '%s' "$size_json" | grep -o '"count":[0-9]*' | head -1 | cut -d: -f2)
+  [ -z "$exists_count" ] && break
+  if [ "$exists_count" -eq 0 ]; then
+    break
+  fi
+  cur_bytes=$(printf '%s' "$size_json" | grep -o '"bytes":[0-9]*' | head -1 | cut -d: -f2)
+  [ -z "$cur_bytes" ] && cur_bytes=0
+  if [ "$cur_bytes" -ge "$LIMIT_BYTES" ]; then
+    n=$((n + 1))
+    continue
+  else
+    folder_index="$n"
+    folder_used="$cur_bytes"
+    break
+  fi
+done
+if [ "$folder_index" -eq 1 ] && [ "$folder_used" -eq 0 ] && [ "$n" -gt 1 ]; then
+  folder_index="$n"
+fi
+echo "PROG:RESUME;folder=$folder_index;used=$folder_used"
 
 while IFS="$TAB" read -r size file; do
   [ -z "$size" ] && continue
