@@ -4,6 +4,8 @@ set -uo pipefail
 SOURCE="${SOURCE:?SOURCE env var required, e.g. Dropbox33:}"
 LIMIT_GB="${LIMIT_GB:-200}"
 LIMIT_BYTES=$((LIMIT_GB * 1024 * 1024 * 1024))
+MIN_MB="${MIN_MB:-2000}"
+MIN_BYTES=$((MIN_MB * 1024 * 1024))
 
 RETRY_ARGS=(--tpslimit 4 --retries 3 --low-level-retries 10 --timeout 5m)
 
@@ -76,6 +78,11 @@ echo "PROG:RESUME;folder=$folder_index;used=$folder_used"
 while IFS="$TAB" read -r size file; do
   [ -z "$size" ] && continue
   [ -z "$file" ] && continue
+
+  if [ "$size" -lt "$MIN_BYTES" ]; then
+    echo "PROG:SKIP_SMALL;$file"
+    continue
+  fi
 
   if [ "$size" -gt "$LIMIT_BYTES" ]; then
     echo "$file ($size bytes) - exceeds ${LIMIT_GB}GB cap, skipped" >> "$skipped_log"
