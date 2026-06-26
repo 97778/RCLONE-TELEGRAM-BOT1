@@ -7,6 +7,11 @@ LIMIT_BYTES=$((LIMIT_GB * 1024 * 1024 * 1024))
 MIN_MB="${MIN_MB:-2000}"
 MIN_BYTES=$((MIN_MB * 1024 * 1024))
 
+if [ "$MIN_BYTES" -ge "$LIMIT_BYTES" ]; then
+  echo "ERROR: MIN_MB (${MIN_MB}MB) must be less than LIMIT_GB (${LIMIT_GB}GB) cap, otherwise no file could ever qualify." >&2
+  exit 1
+fi
+
 RETRY_ARGS=(--tpslimit 4 --retries 3 --low-level-retries 10 --timeout 5m)
 
 # rclone reads RCLONE_CONFIG automatically; build --config if set
